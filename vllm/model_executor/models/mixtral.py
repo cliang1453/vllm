@@ -177,7 +177,8 @@ class mp(torch.autograd.Function):
 
 
 def sparsemixer(scores, top_k, jitter_eps=0.01):
-    assert top_k == 2
+    # assert top_k == 2
+    assert top_k == 2 or top_k == 1
     
     ################ first expert ################
     
@@ -199,31 +200,32 @@ def sparsemixer(scores, top_k, jitter_eps=0.01):
 
     multiplier = multiplier_o
 
-    # masked out first expert 
-    masked_scores = torch.scatter(
-        scores,
-        -1,
-        selected_experts,
-        float('-inf'),
-    )
-    with torch.no_grad():
-        # compute mask for sparsity
-        mask_logits_threshold, max_ind = masked_scores.max(dim=-1, keepdim=True)
-        factor = scores.abs().clamp(min=mask_logits_threshold)
-        mask_logits_threshold = (
-            (mask_logits_threshold - scores) / factor
-        ) > (2 * jitter_eps)
+    if top_k == 2:
+        # masked out first expert 
+        masked_scores = torch.scatter(
+            scores,
+            -1,
+            selected_experts,
+            float('-inf'),
+        )
+        with torch.no_grad():
+            # compute mask for sparsity
+            mask_logits_threshold, max_ind = masked_scores.max(dim=-1, keepdim=True)
+            factor = scores.abs().clamp(min=mask_logits_threshold)
+            mask_logits_threshold = (
+                (mask_logits_threshold - scores) / factor
+            ) > (2 * jitter_eps)
 
-    # apply mask 
-    masked_gates_top2 = masked_scores.masked_fill(mask_logits_threshold, float('-inf'))
-    selected_experts_top2 = max_ind
-    # compute scores for gradients
-    masked_gates_top2 = torch.softmax(masked_gates_top2, dim=-1)
-    multiplier_top2 = masked_gates_top2.gather(dim=-1, index=selected_experts_top2)
+        # apply mask 
+        masked_gates_top2 = masked_scores.masked_fill(mask_logits_threshold, float('-inf'))
+        selected_experts_top2 = max_ind
+        # compute scores for gradients
+        masked_gates_top2 = torch.softmax(masked_gates_top2, dim=-1)
+        multiplier_top2 = masked_gates_top2.gather(dim=-1, index=selected_experts_top2)
 
-    multiplier = torch.concat((multiplier, multiplier_top2), dim=-1)
-    selected_experts = torch.concat((selected_experts, selected_experts_top2), dim=-1)
-    
+        multiplier = torch.concat((multiplier, multiplier_top2), dim=-1)
+        selected_experts = torch.concat((selected_experts, selected_experts_top2), dim=-1)
+        
     return (
         multiplier, 
         selected_experts,
